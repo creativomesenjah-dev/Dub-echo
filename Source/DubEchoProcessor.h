@@ -102,6 +102,7 @@ private:
     void setParamNormalised (const char* id, float v);
 
     TapeEcho echo;
+    double currentSampleRate = 48000.0;
     juce::HeapBlock<float> monoScratch;
 
     std::atomic<bool> throwDown[NumSources] {}, freezeDown[NumSources] {};
@@ -121,6 +122,16 @@ private:
     std::array<std::atomic<int>, kNumTargets> mappings;
     std::array<float, kNumTargets> lastContinuous {};
     std::atomic<int> learnTarget { -1 };
+
+    // Aprender un eje: durante ~0,6 s se escuchan todas las fuentes y gana la que más se movió.
+    // (El pad XY manda X e Y a la vez; así no se asigna por error el eje equivocado.)
+    struct LearnCandidate { int src; float minV, maxV; };
+    std::array<LearnCandidate, 8> learnCands {};
+    int numLearnCands = 0, learnCandTarget = -1;
+    double learnStartMs = 0.0;
+    void finishContinuousLearn (bool force);
+
+    std::atomic<bool> timeShorterHeld { false }, timeLongerHeld { false };
     std::atomic<int> lastMidiType { 0 }, lastMidiNumber { 0 }, lastMidiValue { 0 }, lastMidiChannel { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DubEchoProcessor)

@@ -46,3 +46,14 @@ target_link_libraries(DubEcho
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Prueba de la lógica MIDI (aprender ejes, pads de tiempo). Sólo para desarrollo:
+#   cmake -B build -DDUBECHO_TESTS=ON && cmake --build build --target MidiLogicTest
+option(DUBECHO_TESTS "Compilar pruebas de lógica MIDI" OFF)
+if(DUBECHO_TESTS)
+    juce_add_console_app(MidiLogicTest PRODUCT_NAME "MidiLogicTest")
+    target_sources(MidiLogicTest PRIVATE tests/midi_logic_test.cpp Source/DubEchoProcessor.cpp)
+    target_include_directories(MidiLogicTest PRIVATE Source)
+    target_compile_definitions(MidiLogicTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(MidiLogicTest PRIVATE juce::juce_audio_processors PUBLIC juce::juce_recommended_config_flags)
+endif()

@@ -17,6 +17,7 @@ enum class Target : int
     Time = 0, Feedback, Inertia, Wow, Drive, LowCut, HighCut, Input, Output,
     // acciones (pads / teclas)
     Throw, Send, Freeze, Kill, Tap, Div1, Div2, Div3, Div4, Div5,
+    TimeShorter, TimeLonger,   // mantener: el tiempo se acorta / alarga (con glide de pitch)
     Count
 };
 
@@ -48,13 +49,15 @@ inline const char* targetName (Target t)
         case Target::Div3:     return "División 1/4";
         case Target::Div4:     return "División 1/4 con puntillo";
         case Target::Div5:     return "División 1/4 tresillo";
+        case Target::TimeShorter: return "Tiempo: acortar (mantener)";
+        case Target::TimeLonger:  return "Tiempo: alargar (mantener)";
         case Target::Count:    break;
     }
     return "";
 }
 
 // Fuente MIDI empaquetada en un int: tipo << 8 | número.
-enum SourceType : int { None = 0, Note = 1, CC = 2, PitchBend = 3 };
+enum SourceType : int { None = 0, Note = 1, CC = 2, PitchBend = 3, Pressure = 4, Other = 9 };
 
 inline int packSource (int type, int number) { return (type << 8) | (number & 0x7f); }
 inline int sourceType (int packed)   { return packed >> 8; }
@@ -68,6 +71,7 @@ inline juce::String describeSource (int packed)
                              + " (" + juce::MidiMessage::getMidiNoteName (sourceNumber (packed), true, true, 3) + ")";
         case CC:        return "CC " + juce::String (sourceNumber (packed));
         case PitchBend: return "Pitch bend";
+        case Pressure:  return "Aftertouch";
         default:        return u8 ("—");
     }
 }
@@ -91,6 +95,8 @@ inline std::array<int, kNumTargets> defaultMappings()
     m[(int) Target::Div3]     = packSource (Note, 43);
     m[(int) Target::Div4]     = packSource (Note, 44);
     m[(int) Target::Div5]     = packSource (Note, 45);
+    m[(int) Target::TimeShorter] = packSource (Note, 46);
+    m[(int) Target::TimeLonger]  = packSource (Note, 47);
     return m;
 }
 

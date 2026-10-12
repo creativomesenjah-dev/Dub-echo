@@ -30,10 +30,14 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 \
+            -DDUBECHO_TESTS=ON
 
       - name: Compilar
         run: cmake --build build --config Release -j 4
+
+      - name: Pruebas de la lógica MIDI
+        run: ./build/MidiLogicTest_artefacts/Release/MidiLogicTest
 
       - name: Firmar (ad-hoc) y verificar
         run: |

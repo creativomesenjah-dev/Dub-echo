@@ -55,8 +55,10 @@ de la Mac) y la vuelve a tomar sola al reconectarla. Lo mismo con el nanoPAD2.
 | Freeze (mantener: loop congelado) | F | Pad nota 39 |
 | Envío continuo on/off | E | Pad nota 40 |
 | Divisiones 1/8 · 1/8· · 1/4 · 1/4· · 1/4T | 1 a 5 | Pads notas 41 a 45 |
+| Tiempo: acortar / alargar (mantener, con glide) | ← → | Pads notas 46 y 47 |
 
-Si tu nanoPAD2 manda otras notas o CC, **Mapeo MIDI** → *Aprender* → tocá el pad. Ahí también se pueden
+Si tu nanoPAD2 manda otras notas o CC, **Mapeo MIDI** → *Aprender* → tocá el pad. Para un eje del pad XY,
+tocá *Aprender* y deslizá el dedo **sólo en esa dirección** durante medio segundo: gana el eje que más se movió. Ahí también se pueden
 asignar las perillas, y abajo se ve el último mensaje MIDI recibido.
 
 Al soltar el pad XY, el nanoPAD2 vuelve al centro/cero: Dub Echo ignora ese salto, así el tiempo y el

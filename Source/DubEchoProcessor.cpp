@@ -65,6 +65,7 @@ bool DubEchoProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 void DubEchoProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     juce::ignoreUnused (samplesPerBlock);
+    currentSampleRate = sampleRate;
     echo.prepare (sampleRate);
 }
 
@@ -76,6 +77,12 @@ void DubEchoProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     for (const auto meta : midi)
         handleMidi (meta.getMessage());
     midi.clear();
+    finishContinuousLearn (false);
+
+    // pads de tiempo: mientras se mantienen, el tiempo se mueve (la inercia lo convierte en glide)
+    const int rampDir = (timeLongerHeld.load() ? 1 : 0) - (timeShorterHeld.load() ? 1 : 0);
+    if (rampDir != 0)
+        nudge (ParamID::time, (float) rampDir * 0.3f * (float) buffer.getNumSamples() / (float) currentSampleRate);
 
     const int pending = killRequests.load();
     if (pending != killHandled) { killHandled = pending; echo.triggerKill(); }
@@ -236,7 +243,9 @@ juce::String DubEchoProcessor::getLastMidiDescription() const
         case Note:      return describeSource (packSource (Note, lastMidiNumber.load())) + " vel " + juce::String (lastMidiValue.load()) + ch;
         case CC:        return "CC " + juce::String (lastMidiNumber.load()) + " = " + juce::String (lastMidiValue.load()) + ch;
         case PitchBend: return "Pitch bend = " + juce::String (lastMidiValue.load()) + ch;
-        default:        return {};
+        case Pressure:  return "Aftertouch = " + juce::String (lastMidiValue.load()) + ch;
+        default:        return u8 ("Otro mensaje (status 0x") + juce::String::toHexString (lastMidiNumber.load()).toUpperCase()
+                               + u8 (", no se puede asignar)") + ch;
     }
 }
 
@@ -264,8 +273,19 @@ void DubEchoProcessor::handleMidi (const juce::MidiMessage& m)
         type = PitchBend; raw = m.getPitchWheelValue();
         value = raw / 16383.0f; isRest = raw == 8192;
     }
+    else if (m.isChannelPressure())
+    {
+        type = Pressure; raw = m.getChannelPressureValue();
+        value = raw / 127.0f; isRest = raw == 0;
+    }
     else
     {
+        // se muestra en el monitor para poder diagnosticar qué manda el controlador
+        if (m.getRawDataSize() > 0 && ! m.isMidiClock() && ! m.isActiveSense())
+        {
+            lastMidiType.store (Other); lastMidiNumber.store (m.getRawData()[0]);
+            lastMidiValue.store (0); lastMidiChannel.store (m.getChannel());
+        }
         return;
     }
 
@@ -273,13 +293,37 @@ void DubEchoProcessor::handleMidi (const juce::MidiMessage& m)
 
     const int src = packSource (type, number);
 
-    // --- aprendiendo: el primer mensaje válido queda asignado
+    // --- aprendiendo
     const int learning = learnTarget.load();
     if (learning >= 0)
     {
         const bool continuous = isContinuous ((Target) learning);
-        const bool valid = continuous ? (type == CC || type == PitchBend)
-                                      : ((type == Note && pressed) || type == CC);
+
+        if (continuous)
+        {
+            // ejes y perillas: juntar candidatos y elegir el que más se mueve
+            if (type != CC && type != PitchBend && type != Pressure) return;
+            if (learnCandTarget != learning) { numLearnCands = 0; learnCandTarget = learning; }
+            if (numLearnCands == 0) learnStartMs = juce::Time::getMillisecondCounterHiRes();
+
+            int idx = -1;
+            for (int c = 0; c < numLearnCands; ++c) if (learnCands[(size_t) c].src == src) idx = c;
+            if (idx < 0 && numLearnCands < (int) learnCands.size())
+            {
+                idx = numLearnCands++;
+                learnCands[(size_t) idx] = { src, value, value };
+            }
+            if (idx >= 0)
+            {
+                auto& c = learnCands[(size_t) idx];
+                c.minV = juce::jmin (c.minV, value);
+                c.maxV = juce::jmax (c.maxV, value);
+            }
+            return;
+        }
+
+        // pads / botones: el primer golpe queda asignado
+        const bool valid = (type == Note && pressed) || type == CC;
         if (! valid) return;
 
         for (int i = 0; i < kNumTargets; ++i)      // una fuente controla un solo destino
@@ -308,14 +352,41 @@ void DubEchoProcessor::handleMidi (const juce::MidiMessage& m)
             continue;
         }
 
-        if      (t == Target::Throw)  setThrow (FromMidi, pressed);
-        else if (t == Target::Freeze) setFreeze (FromMidi, pressed);
-        else if (! pressed)           continue;
-        else if (t == Target::Send)   toggleSend();
-        else if (t == Target::Kill)   kill();
-        else if (t == Target::Tap)    tap();
-        else                          selectDivision (i - (int) Target::Div1 + 1);   // Div1..Div5
+        if      (t == Target::Throw)       setThrow (FromMidi, pressed);
+        else if (t == Target::Freeze)      setFreeze (FromMidi, pressed);
+        else if (t == Target::TimeShorter) timeShorterHeld.store (pressed);
+        else if (t == Target::TimeLonger)  timeLongerHeld.store (pressed);
+        else if (! pressed)                continue;
+        else if (t == Target::Send)        toggleSend();
+        else if (t == Target::Kill)        kill();
+        else if (t == Target::Tap)         tap();
+        else if (t >= Target::Div1 && t <= Target::Div5) selectDivision (i - (int) Target::Div1 + 1);
     }
+}
+
+void DubEchoProcessor::finishContinuousLearn (bool force)
+{
+    const int learning = learnTarget.load();
+    if (learning < 0 || learning != learnCandTarget || numLearnCands == 0) return;
+    if (! force && juce::Time::getMillisecondCounterHiRes() - learnStartMs < 600.0) return;
+
+    int best = 0;
+    float bestRange = -1.0f;
+    for (int c = 0; c < numLearnCands; ++c)
+    {
+        const float range = learnCands[(size_t) c].maxV - learnCands[(size_t) c].minV;
+        if (range > bestRange) { bestRange = range; best = c; }
+    }
+    const int src = learnCands[(size_t) best].src;
+
+    for (int i = 0; i < kNumTargets; ++i)      // una fuente controla un solo destino
+        if (mappings[(size_t) i].load() == src) mappings[(size_t) i].store (packSource (None, 0));
+
+    mappings[(size_t) learning].store (src);
+    lastContinuous[(size_t) learning] = -1.0f;
+    numLearnCands = 0;
+    learnCandTarget = -1;
+    learnTarget.store (-1);
 }
 
 // ---------------------------------------------------------------------------
