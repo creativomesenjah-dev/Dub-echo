@@ -1,0 +1,5 @@
+build/
+renders/
+render_test
+.DS_Store
+*.dmg

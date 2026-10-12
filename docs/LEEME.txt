@@ -1,0 +1,22 @@
+DUB ECHO — eco de cinta para el envío del mixer
+
+INSTALAR
+1. Arrastrá "Dub Echo" a la carpeta Aplicaciones.
+2. La primera vez abrilo con clic derecho > Abrir > Abrir
+   (la app no está firmada por Apple; después se abre normal).
+3. Cuando pregunte por el micrófono, tocá "Aceptar": es la entrada de la placa USB.
+   Si lo rechazaste: Preferencias del Sistema > Seguridad y privacidad > Privacidad > Micrófono.
+
+CONECTAR
+- FLX4 master (RCA) -> cable Y -> un lado al mixer (música seca), el otro a la ENTRADA de la UCA222.
+- SALIDA de la UCA222 -> canal libre del mixer (sólo eco).
+- UCA222 y nanoPAD2 al hub alimentado. La FLX4 SIEMPRE directa a la Mac.
+
+PRIMERA VEZ EN LA APP
+- "Audio / MIDI": salida y entrada = "USB Audio CODEC" (la UCA222). Activá el nanoPAD2.
+- Arrancá con el fader del canal de retorno abajo y subilo de a poco.
+
+TECLADO (la ventana de Dub Echo tiene que estar al frente)
+ESPACIO throw · E envío · F freeze · K kill · T tap · 1-5 divisiones · flechas tiempo/feedback
+
+Más detalle: README del proyecto en GitHub.
