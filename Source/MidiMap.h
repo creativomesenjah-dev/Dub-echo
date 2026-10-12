@@ -18,6 +18,7 @@ enum class Target : int
     // acciones (pads / teclas)
     Throw, Send, Freeze, Kill, Tap, Div1, Div2, Div3, Div4, Div5,
     TimeShorter, TimeLonger,   // mantener: el tiempo se acorta / alarga (con glide de pitch)
+    Siren1, Siren2, Siren3, Siren4,   // mantener: suena la sirena
     Count
 };
 
@@ -51,6 +52,10 @@ inline const char* targetName (Target t)
         case Target::Div5:     return "División 1/4 tresillo";
         case Target::TimeShorter: return "Tiempo: acortar (mantener)";
         case Target::TimeLonger:  return "Tiempo: alargar (mantener)";
+        case Target::Siren1:   return "Sirena 1: dos tonos (mantener)";
+        case Target::Siren2:   return "Sirena 2: láser (mantener)";
+        case Target::Siren3:   return "Sirena 3: ondulante (mantener)";
+        case Target::Siren4:   return "Sirena 4: caída (mantener)";
         case Target::Count:    break;
     }
     return "";
@@ -97,6 +102,10 @@ inline std::array<int, kNumTargets> defaultMappings()
     m[(int) Target::Div5]     = packSource (Note, 45);
     m[(int) Target::TimeShorter] = packSource (Note, 46);
     m[(int) Target::TimeLonger]  = packSource (Note, 47);
+    m[(int) Target::Siren1]   = packSource (Note, 48);
+    m[(int) Target::Siren2]   = packSource (Note, 49);
+    m[(int) Target::Siren3]   = packSource (Note, 50);
+    m[(int) Target::Siren4]   = packSource (Note, 51);
     return m;
 }
 

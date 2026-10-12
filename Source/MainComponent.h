@@ -96,6 +96,11 @@ private:
     HoldButton throwButton { "THROW" }, freezeButton { "FREEZE" };
     juce::TextButton sendButton { u8 ("ENVÍO") }, killButton { "KILL" }, tapButton { "TAP" };
     juce::OwnedArray<juce::TextButton> divButtons;
+    juce::Label sirenLabel;
+    juce::OwnedArray<HoldButton> sirenButtons;
+    juce::Slider sirenLevel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sirenLevelAttachment;
+    bool keySiren[4] {};
     juce::Label help;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> sendAttachment;
 

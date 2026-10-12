@@ -22,7 +22,7 @@ private:
             setUsingNativeTitleBar (true);
             setContentOwned (new dubecho::MainComponent(), true);
             setResizable (true, true);
-            setResizeLimits (800, 560, 1600, 1100);
+            setResizeLimits (820, 640, 1600, 1150);
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
         }

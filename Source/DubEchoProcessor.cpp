@@ -50,6 +50,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout DubEchoProcessor::createLayo
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ParamID::input, 1 },    "Entrada",    NormalisableRange<float> (-24.0f, 12.0f), 0.0f, db));
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ParamID::output, 1 },   "Salida",     NormalisableRange<float> (-24.0f, 12.0f), 6.0f, db));
     p.push_back (std::make_unique<AudioParameterBool>  (ParameterID { ParamID::send, 1 },     u8 ("Envío"),  true));
+    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ParamID::siren, 1 },    "Sirena",     NormalisableRange<float> (-30.0f, 6.0f), -3.0f, db));
 
     return { p.begin(), p.end() };
 }
@@ -64,9 +65,12 @@ bool DubEchoProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 void DubEchoProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    juce::ignoreUnused (samplesPerBlock);
     currentSampleRate = sampleRate;
     echo.prepare (sampleRate);
+    siren.prepare (sampleRate);
+    scratchSize = juce::jmax (samplesPerBlock, 2048);
+    monoScratch.allocate ((size_t) scratchSize, true);
+    sirenScratch.allocate ((size_t) scratchSize, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -104,30 +108,71 @@ void DubEchoProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     p.freeze     = isFrozen();
     echo.setParams (p);
 
+    // --- sirena: aplicar pedidos de la interfaz y del MIDI
+    const int presses = sirenPressCount.load();
+    if (presses != sirenPressHandled)
+    {
+        sirenPressHandled = presses;
+        sirenX.store (-1.0f); sirenY.store (-1.0f);
+        siren.noteOn (sirenLastPreset.load());
+    }
+    const int heldMask = getSirenHeldMask();
+    if (heldMask == 0 && siren.isHeld())
+        siren.noteOff();
+    else if (heldMask != 0 && siren.isHeld() && (heldMask & (1 << siren.getPreset())) == 0)
+        for (int i = 0; i < 4; ++i)            // se soltó el pad que sonaba pero queda otro apretado
+            if (heldMask & (1 << i)) { siren.noteOn (i); break; }
+    siren.setXY (sirenX.load(), sirenY.load());
+    const float sirenLevel = juce::Decibels::decibelsToGain (get (ParamID::siren), -30.0f);
+
     const int numIn  = getTotalNumInputChannels();
     const int numOut = getTotalNumOutputChannels();
     const int n      = buffer.getNumSamples();
-    if (n == 0 || numOut == 0) return;
+    if (n == 0 || numOut == 0 || scratchSize == 0) return;
+
+    if (numIn > 0)
+    {
+        float pk = juce::jmax (inPeak.load(), buffer.getMagnitude (0, 0, n));
+        if (numIn > 1) pk = juce::jmax (pk, buffer.getMagnitude (1, 0, n));
+        inPeak.store (pk);
+    }
 
     float* outL = buffer.getWritePointer (0);
     float* outR = numOut > 1 ? buffer.getWritePointer (1) : nullptr;
 
-    if (numIn == 0)
+    for (int start = 0; start < n; start += scratchSize)
     {
-        // Sin entrada (placa sin canales de entrada): el eco sigue sonando con lo que tenga.
-        buffer.clear();
-        echo.process (outL, nullptr, outL, outR, n);
-    }
-    else
-    {
-        const float* inL = buffer.getReadPointer (0);
-        const float* inR = numIn > 1 ? buffer.getReadPointer (1) : nullptr;
+        const int len = juce::jmin (scratchSize, n - start);
+        float* mono = monoScratch.get();
+        float* sir  = sirenScratch.get();
 
-        float pk = juce::jmax (inPeak.load(), buffer.getMagnitude (0, 0, n));
-        if (numIn > 1) pk = juce::jmax (pk, buffer.getMagnitude (1, 0, n));
-        inPeak.store (pk);
+        // entrada mono: música + sirena (la compuerta del eco decide si entran: throw / envío)
+        if (numIn == 0)      juce::FloatVectorOperations::clear (mono, len);
+        else if (numIn == 1) juce::FloatVectorOperations::copy (mono, buffer.getReadPointer (0, start), len);
+        else
+        {
+            juce::FloatVectorOperations::copy (mono, buffer.getReadPointer (0, start), len);
+            juce::FloatVectorOperations::add (mono, buffer.getReadPointer (1, start), len);
+            juce::FloatVectorOperations::multiply (mono, 0.5f, len);
+        }
 
-        echo.process (inL, inR, outL, outR, n); // en el lugar: lee y escribe la misma muestra
+        juce::FloatVectorOperations::clear (sir, len);
+        const bool sirenOn = siren.process (sir, len, sirenLevel);
+        if (sirenOn) juce::FloatVectorOperations::add (mono, sir, len);
+
+        echo.process (mono, nullptr, outL + start, outR != nullptr ? outR + start : nullptr, len);
+
+        // la sirena también sale seca por el retorno
+        if (sirenOn)
+        {
+            juce::FloatVectorOperations::add (outL + start, sir, len);
+            juce::FloatVectorOperations::clip (outL + start, outL + start, -1.0f, 1.0f, len);
+            if (outR != nullptr)
+            {
+                juce::FloatVectorOperations::add (outR + start, sir, len);
+                juce::FloatVectorOperations::clip (outR + start, outR + start, -1.0f, 1.0f, len);
+            }
+        }
     }
 
     for (int ch = 2; ch < buffer.getNumChannels(); ++ch)
@@ -149,6 +194,31 @@ bool DubEchoProcessor::isFrozen() const
     for (auto& f : freezeDown) if (f.load()) return true;
     return false;
 }
+
+void DubEchoProcessor::setSiren (Source s, int preset, bool down)
+{
+    preset = juce::jlimit (0, 3, preset);
+    const int bit = 1 << preset;
+    if (down)
+    {
+        sirenMask[s].fetch_or (bit);
+        sirenLastPreset.store (preset);
+        sirenPressCount.fetch_add (1);
+    }
+    else
+    {
+        sirenMask[s].fetch_and (~bit);
+    }
+}
+
+int DubEchoProcessor::getSirenHeldMask() const
+{
+    int m = 0;
+    for (auto& s : sirenMask) m |= s.load();
+    return m;
+}
+
+bool DubEchoProcessor::isSirenHeld() const { return getSirenHeldMask() != 0; }
 
 void DubEchoProcessor::setParamNormalised (const char* id, float v)
 {
@@ -348,6 +418,12 @@ void DubEchoProcessor::handleMidi (const juce::MidiMessage& m)
             if (isRest && lastContinuous[(size_t) i] >= 0.0f && std::abs (value - lastContinuous[(size_t) i]) > 0.3f)
                 continue;
             lastContinuous[(size_t) i] = value;
+            if (isSirenHeld() && (t == Target::Time || t == Target::Feedback))
+            {
+                // mientras suena la sirena, el pad XY la toca: X = tono, Y = velocidad
+                if (t == Target::Time) sirenX.store (value); else sirenY.store (value);
+                continue;
+            }
             setParamNormalised (continuousIDs[i], value);
             continue;
         }
@@ -356,6 +432,7 @@ void DubEchoProcessor::handleMidi (const juce::MidiMessage& m)
         else if (t == Target::Freeze)      setFreeze (FromMidi, pressed);
         else if (t == Target::TimeShorter) timeShorterHeld.store (pressed);
         else if (t == Target::TimeLonger)  timeLongerHeld.store (pressed);
+        else if (t >= Target::Siren1 && t <= Target::Siren4) setSiren (FromMidi, i - (int) Target::Siren1, pressed);
         else if (! pressed)                continue;
         else if (t == Target::Send)        toggleSend();
         else if (t == Target::Kill)        kill();

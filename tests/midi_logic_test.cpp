@@ -61,6 +61,33 @@ int main()
     { juce::MidiBuffer m; run (m); }
     check (p.getMapping (Target::Wow) == packSource (Pressure, 0), "aftertouch asignable");
 
+    // 6) Sirena: pad 48 suena seca aunque el envío esté apagado; el XY toca la sirena y no el eco
+    {
+        if (auto* send = p.apvts.getParameter (ParamID::send)) send->setValueNotifyingHost (0.0f);
+        { juce::MidiBuffer m; m.addEvent (juce::MidiMessage::controllerEvent (1, 1, 64), 0); run (m); }
+        auto* fb = p.apvts.getParameter (ParamID::feedback);
+        const float fbBefore = fb->getValue();
+
+        { juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0); run (m); }
+        check (p.isSirenHeld(), "pad 48 dispara la sirena");
+        float pk = 0;
+        for (int k = 0; k < 40; ++k)
+        {
+            juce::MidiBuffer m;
+            if (k % 4 == 0) m.addEvent (juce::MidiMessage::controllerEvent (1, 1, 10 + k * 2), 0);
+            run (m); pk = juce::jmax (pk, buf.getMagnitude (0, 0, 512));
+        }
+        check (pk > 0.1f, "la sirena se escucha en la salida (seca)");
+        check (std::abs (fb->getValue() - fbBefore) < 1e-6f, "mientras suena la sirena, el eje Y no toca el feedback");
+
+        { juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOff (1, 48), 0); run (m); }
+        for (int k = 0; k < 200; ++k) { juce::MidiBuffer m; run (m); }   // ~2 s
+        check (! p.isSirenHeld() && buf.getMagnitude (0, 0, 512) < 1e-4f, "al soltar, la sirena se apaga y sin envío no deja eco");
+
+        { juce::MidiBuffer m; m.addEvent (juce::MidiMessage::controllerEvent (1, 1, 127), 0); run (m); }
+        check (fb->getValue() > 0.99f, "al soltar la sirena, el eje Y vuelve a manejar el feedback");
+    }
+
     std::printf ("\n%s (%d fallas)\n", failures == 0 ? "TODO OK" : "HAY FALLAS", failures);
     return failures == 0 ? 0 : 1;
 }

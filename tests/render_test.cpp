@@ -1,6 +1,7 @@
 // Pruebas offline del núcleo DSP. Compila sin JUCE:
 //   g++ -O2 -std=c++17 -I../Source render_test.cpp -o render_test && ./render_test outdir
 #include "TapeEchoDSP.h"
+#include "SirenDSP.h"
 #include <chrono>
 #include <functional>
 #include <cstdio>
@@ -208,6 +209,44 @@ int main (int argc, char** argv)
         const double ms = (double) (argmax - lastClick) / SR * 1000.0;
         std::printf ("     después de 30 min: eco a %.1f ms (500 ± wow)\n", ms);
         check (allFinite (r.out) && std::fabs (ms - 500) < 10, "estable en sesión larga");
+    }
+
+    // 7) Sirena: cada preset suena, no satura, y se apaga sola después de soltar
+    for (int pr = 0; pr < 4; ++pr)
+    {
+        Siren s; s.prepare (SR);
+        std::vector<float> out ((size_t) SR * 5, 0.0f);
+        s.noteOn (pr);
+        const int bs = 256;
+        bool stopped = false; size_t stopAt = 0;
+        for (size_t pos = 0; pos < out.size(); pos += bs)
+        {
+            if (pos >= (size_t) SR * 2 && s.isHeld()) s.noteOff();
+            s.process (out.data() + pos, (int) std::min<size_t> (bs, out.size() - pos), 1.0f);
+            if (! s.isActive() && ! stopped) { stopped = true; stopAt = pos; }
+        }
+        writeWav (dir + "/05_sirena_" + std::to_string (pr + 1) + ".wav", out);
+        const float pk = peak (out, 0, out.size());
+        const float held = peak (out, (size_t) (0.5 * SR), (size_t) (1.9 * SR));
+        std::printf ("     sirena %d (%s): pico %.2f, se apaga a los %.2f s\n", pr + 1, sirenPreset (pr).name, pk, (double) stopAt / SR);
+        check (allFinite (out) && pk < 0.6f && held > 0.15f, "sirena: suena estable y sin saturar");
+        check (stopped && stopAt < (size_t) ((2.0 + 2.5 * sirenPreset (pr).releaseSec) * SR), "sirena: se apaga sola al soltar");
+    }
+
+    // 8) Sirena "dos tonos": alterna entre dos alturas
+    {
+        Siren s; s.prepare (SR); s.noteOn (0);
+        std::vector<float> out ((size_t) SR * 2, 0.0f);
+        s.process (out.data(), (int) out.size(), 1.0f);
+        auto freqAt = [&] (float sec) {
+            const size_t a = (size_t) (sec * SR), b = a + SR / 20; int z = 0;
+            for (size_t i = a + 1; i < b; ++i) if ((out[i - 1] < 0) != (out[i] < 0)) ++z;
+            return z / 2.0f / 0.05f;
+        };
+        // LFO 2,6 Hz: medio ciclo = 192 ms
+        const float lo = freqAt (0.03f), hi = freqAt (0.22f);
+        std::printf ("     dos tonos: %.0f Hz / %.0f Hz\n", lo, hi);
+        check (std::abs (lo - 740) < 40 && std::abs (hi - 740 * std::exp2 (5.0f / 12)) < 50, "dos tonos alterna una cuarta");
     }
 
     std::printf ("\n%s (%d fallas)\n", failures == 0 ? "TODO OK" : "HAY FALLAS", failures);

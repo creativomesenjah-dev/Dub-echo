@@ -56,6 +56,7 @@ de la Mac) y la vuelve a tomar sola al reconectarla. Lo mismo con el nanoPAD2.
 | Envío continuo on/off | E | Pad nota 40 |
 | Divisiones 1/8 · 1/8· · 1/4 · 1/4· · 1/4T | 1 a 5 | Pads notas 41 a 45 |
 | Tiempo: acortar / alargar (mantener, con glide) | ← → | Pads notas 46 y 47 |
+| Sirenas 1 a 4 (mantener) | Z X C V | Pads notas 48 a 51 |
 
 Si tu nanoPAD2 manda otras notas o CC, **Mapeo MIDI** → *Aprender* → tocá el pad. Para un eje del pad XY,
 tocá *Aprender* y deslizá el dedo **sólo en esa dirección** durante medio segundo: gana el eje que más se movió. Ahí también se pueden
@@ -66,6 +67,27 @@ feedback quedan donde los dejaste.
 
 **El teclado sólo funciona con la ventana de Dub Echo al frente.** Si hacés clic en rekordbox, el
 teclado pasa a rekordbox. El nanoPAD2 funciona siempre, esté al frente la ventana que esté.
+
+## Sirena
+
+Cuatro sirenas clásicas: **dos tonos**, **láser**, **ondulante** y **caída**. Suenan mientras mantenés el pad
+(o la tecla, o el botón en pantalla) y al soltar el pitch cae, como las sirenas de dub analógicas.
+
+- **Mientras suena una sirena, el pad XY la toca:** X = tono (±1 octava), Y = velocidad. Al soltar la sirena,
+  el XY vuelve a manejar tiempo y feedback del eco, que quedan como estaban.
+- **Sale seca** por el mismo canal de retorno, con su propio volumen (slider SIRENA).
+- **Entra al tape echo sólo si lo pedís:** apretá Throw mientras suena (o dejá Envío encendido).
+  También podés usar el delay de tu mesa sobre el canal de retorno.
+
+Los sonidos se ajustan en `Source/SirenDSP.h` (tabla de presets).
+
+## Pad XY del nanoPAD2: si el eje X no responde
+
+El nanoPAD2 tiene un modo **Touch Scale**: cuando está encendido, el eje X del pad toca notas de una escala
+en vez de mandar un control continuo, y por eso Dub Echo no lo puede usar como eje. Apagá el botón
+**TOUCH SCALE** (LED apagado) y probá de nuevo. Si sigue sin responder, en **Mapeo MIDI** mirá qué dice
+"Último MIDI" mientras movés sólo el eje X: con eso se ve qué está mandando el controlador
+(se reconfigura con el KORG KONTROL Editor).
 
 ## Perillas
 

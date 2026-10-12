@@ -85,10 +85,32 @@ MainComponent::MainComponent()
         addAndMakeVisible (b);
     }
 
+    // ----- sirena
+    sirenLabel.setText ("SIRENA", juce::dontSendNotification);
+    sirenLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    sirenLabel.setColour (juce::Label::textColourId, Colours::textDim);
+    addAndMakeVisible (sirenLabel);
+    for (int i = 0; i < 4; ++i)
+    {
+        auto* b = sirenButtons.add (new HoldButton (u8 (sirenPreset (i).name)));
+        b->onHold = [this, i] (bool down) { processor.setSiren (DubEchoProcessor::FromMouse, i, down); };
+        b->setColour (juce::TextButton::buttonOnColourId, Colours::red);
+        b->setWantsKeyboardFocus (false);
+        addAndMakeVisible (b);
+    }
+    sirenLevel.setSliderStyle (juce::Slider::LinearHorizontal);
+    sirenLevel.setTextBoxStyle (juce::Slider::TextBoxRight, true, 64, 20);
+    sirenLevel.setColour (juce::Slider::trackColourId, Colours::red.withAlpha (0.7f));
+    sirenLevel.setColour (juce::Slider::backgroundColourId, Colours::panelHi);
+    sirenLevel.setColour (juce::Slider::thumbColourId, Colours::text);
+    sirenLevel.setWantsKeyboardFocus (false);
+    sirenLevelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.apvts, ParamID::siren, sirenLevel);
+    addAndMakeVisible (sirenLevel);
+
     audioButton.setWantsKeyboardFocus (false);
     mapButton.setWantsKeyboardFocus (false);
 
-    help.setText (u8 ("Teclado:  ESPACIO throw  ·  E envío  ·  F freeze  ·  K kill  ·  T tap  ·  1-5 divisiones  ·  flechas: tiempo y feedback (con shift, fino)"),
+    help.setText (u8 ("Teclado:  ESPACIO throw  ·  E envío  ·  F freeze  ·  K kill  ·  T tap  ·  1-5 divisiones  ·  flechas tiempo/feedback  ·  Z X C V sirenas"),
                   juce::dontSendNotification);
     help.setFont (juce::FontOptions (12.0f));
     help.setColour (juce::Label::textColourId, Colours::textDim);
@@ -98,7 +120,7 @@ MainComponent::MainComponent()
     initialiseAudio();
 
     setWantsKeyboardFocus (true);
-    setSize (940, 640);
+    setSize (940, 700);
     startTimerHz (30);
 }
 
@@ -111,6 +133,7 @@ MainComponent::~MainComponent()
     deviceManager.removeAudioCallback (&guarded);
     player.setProcessor (nullptr);
     sendAttachment.reset();
+    sirenLevelAttachment.reset();
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
 }
 
@@ -304,6 +327,9 @@ void MainComponent::timerCallback()
     const bool synced = processor.timeMatchesDivision();
     for (int i = 0; i < divButtons.size(); ++i)
         divButtons[i]->setToggleState (synced && processor.getDivision() == i + 1, juce::dontSendNotification);
+    const int sirenMask = processor.getSirenHeldMask();
+    for (int i = 0; i < sirenButtons.size(); ++i)
+        sirenButtons[i]->setToggleState ((sirenMask & (1 << i)) != 0, juce::dontSendNotification);
 
     // devolverle el teclado a la ventana principal (después de cerrar diálogos, clicks, etc.)
     if (auto* peer = getPeer())
@@ -320,7 +346,8 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
     const auto c = juce::CharacterFunctions::toLowerCase (key.getTextCharacter());
     const int code = key.getKeyCode();
 
-    if (code == juce::KeyPress::spaceKey || c == 'f') return true;      // se manejan como "mantener"
+    if (code == juce::KeyPress::spaceKey || c == 'f'
+        || c == 'z' || c == 'x' || c == 'c' || c == 'v') return true;   // se manejan como "mantener"
     if (c == 'e') { processor.toggleSend(); return true; }
     if (c == 'k') { processor.kill(); return true; }
     if (c == 't') { processor.tap(); return true; }
@@ -340,7 +367,17 @@ bool MainComponent::keyStateChanged (bool)
     const bool f = juce::KeyPress::isKeyCurrentlyDown ('f') || juce::KeyPress::isKeyCurrentlyDown ('F');
     if (t != keyThrow)  { keyThrow = t;  processor.setThrow (DubEchoProcessor::FromKeyboard, t); }
     if (f != keyFreeze) { keyFreeze = f; processor.setFreeze (DubEchoProcessor::FromKeyboard, f); }
-    return t || f;
+
+    static const char sirenKeys[4] = { 'z', 'x', 'c', 'v' };
+    bool anySiren = false;
+    for (int i = 0; i < 4; ++i)
+    {
+        const bool down = juce::KeyPress::isKeyCurrentlyDown (sirenKeys[i])
+                       || juce::KeyPress::isKeyCurrentlyDown (juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) sirenKeys[i]));
+        if (down != keySiren[i]) { keySiren[i] = down; processor.setSiren (DubEchoProcessor::FromKeyboard, i, down); }
+        anySiren = anySiren || down;
+    }
+    return t || f || anySiren;
 }
 
 void MainComponent::focusLost (FocusChangeType) { releaseHeldKeys(); }
@@ -348,6 +385,8 @@ void MainComponent::focusLost (FocusChangeType) { releaseHeldKeys(); }
 void MainComponent::releaseHeldKeys()
 {
     keyThrow = keyFreeze = false;
+    for (int i = 0; i < 4; ++i)
+        if (keySiren[i]) { keySiren[i] = false; processor.setSiren (DubEchoProcessor::FromKeyboard, i, false); }
     processor.setThrow (DubEchoProcessor::FromKeyboard, false);
     processor.setFreeze (DubEchoProcessor::FromKeyboard, false);
 }
@@ -358,7 +397,7 @@ void MainComponent::paint (juce::Graphics& g)
     g.fillAll (Colours::bg);
     auto r = getLocalBounds().reduced (16);
     r.removeFromTop (56);
-    auto body = r.removeFromTop (r.getHeight() - 130);
+    auto body = r.removeFromTop (r.getHeight() - 130 - 58);
     auto right = body.removeFromRight (juce::jmax (360, body.getWidth() * 46 / 100));
     g.setColour (Colours::panel);
     g.fillRoundedRectangle (right.toFloat().withTrimmedLeft (12), 10.0f);
@@ -380,6 +419,14 @@ void MainComponent::resized()
 
     help.setBounds (r.removeFromBottom (22));
     auto perf = r.removeFromBottom (100).withTrimmedTop (12);
+
+    auto sirenRow = r.removeFromBottom (58).withTrimmedTop (12);
+    sirenLabel.setBounds (sirenRow.removeFromLeft (70));
+    sirenLevel.setBounds (sirenRow.removeFromRight (240).reduced (0, 6));
+    sirenRow.removeFromRight (12);
+    const int sw = sirenRow.getWidth() / sirenButtons.size();
+    for (auto* b : sirenButtons)
+        b->setBounds (sirenRow.removeFromLeft (sw).reduced (4, 0));
 
     auto body = r;
     auto right = body.removeFromRight (juce::jmax (360, body.getWidth() * 46 / 100)).withTrimmedLeft (12).reduced (10);

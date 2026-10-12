@@ -278,6 +278,26 @@ public:
         g.setColour (Colours::amber);
         g.fillEllipse (tx - 8, fy - 8, 16, 16);
 
+        // modo sirena: el pad toca la sirena
+        if (proc.isSirenHeld())
+        {
+            g.setColour (Colours::red.withAlpha (0.12f));
+            g.fillRect (area);
+            g.setColour (Colours::red);
+            g.setFont (FontOptions (15.0f, Font::bold));
+            g.drawText (u8 ("SIRENA  ·  ← tono →   ↑ velocidad"), area.reduced (10), Justification::centredTop);
+            if (sirenDot.x >= 0.0f)
+            {
+                const float sx = area.getX() + sirenDot.x * area.getWidth();
+                const float sy = area.getBottom() - sirenDot.y * area.getHeight();
+                g.fillEllipse (sx - 7, sy - 7, 14, 14);
+            }
+        }
+        else
+        {
+            sirenDot = { -1.0f, -1.0f };
+        }
+
         // lectura
         auto readout = r.reduced (16, 12).removeFromTop (24);
         const float timeMs = timeParam->convertFrom0to1 (timeParam->getValue());
@@ -299,8 +319,8 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        timeParam->beginChangeGesture();
-        fbParam->beginChangeGesture();
+        gesture = ! proc.isSirenHeld();
+        if (gesture) { timeParam->beginChangeGesture(); fbParam->beginChangeGesture(); }
         mouseDrag (e);
     }
 
@@ -309,14 +329,21 @@ public:
         auto area = padArea();
         const float nx = juce::jlimit (0.0f, 1.0f, (e.position.x - area.getX()) / area.getWidth());
         const float ny = juce::jlimit (0.0f, 1.0f, (area.getBottom() - e.position.y) / area.getHeight());
+        if (proc.isSirenHeld())
+        {
+            // mientras suena la sirena, el pad la toca: X = tono, Y = velocidad
+            proc.setSirenXY (nx, ny);
+            sirenDot = { nx, ny };
+            return;
+        }
         timeParam->setValueNotifyingHost (nx);
         fbParam->setValueNotifyingHost (ny);
     }
 
     void mouseUp (const juce::MouseEvent&) override
     {
-        timeParam->endChangeGesture();
-        fbParam->endChangeGesture();
+        if (gesture) { timeParam->endChangeGesture(); fbParam->endChangeGesture(); }
+        gesture = false;
     }
 
 private:
@@ -336,6 +363,8 @@ private:
     }
 
     DubEchoProcessor& proc;
+    bool gesture = false;
+    juce::Point<float> sirenDot { -1.0f, -1.0f };
     juce::RangedAudioParameter* timeParam = nullptr;
     juce::RangedAudioParameter* fbParam = nullptr;
 };

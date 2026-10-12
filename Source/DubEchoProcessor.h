@@ -4,6 +4,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "TapeEchoDSP.h"
+#include "SirenDSP.h"
 #include "MidiMap.h"
 
 namespace dubecho
@@ -21,6 +22,7 @@ namespace ParamID
     static constexpr const char* input    = "input";
     static constexpr const char* output   = "output";
     static constexpr const char* send     = "send";
+    static constexpr const char* siren    = "siren";
 }
 
 // Divisiones de tempo (en negras). Índice 0 = libre.
@@ -74,6 +76,12 @@ public:
     void selectDivision (int idx);          // 1..5
     void nudge (const char* paramID, float deltaNormalised);
 
+    // --- sirena (0..3). Mientras se mantiene, el pad XY toca la sirena en vez del eco.
+    void setSiren (Source s, int preset, bool down);
+    void setSirenXY (float x01, float y01) { sirenX.store (x01); sirenY.store (y01); }
+    bool isSirenHeld() const;
+    int  getSirenHeldMask() const;
+
     int   getDivision() const              { return division.load(); }
     float getBpm() const                   { return bpm.load(); }
     bool  hasTappedBpm() const             { return bpmFromTap.load(); }
@@ -102,8 +110,15 @@ private:
     void setParamNormalised (const char* id, float v);
 
     TapeEcho echo;
+    Siren siren;
     double currentSampleRate = 48000.0;
-    juce::HeapBlock<float> monoScratch;
+    juce::HeapBlock<float> monoScratch, sirenScratch;
+    int scratchSize = 0;
+
+    std::atomic<int> sirenMask[NumSources] {};
+    std::atomic<int> sirenPressCount { 0 }, sirenLastPreset { 0 };
+    int sirenPressHandled = 0;
+    std::atomic<float> sirenX { -1.0f }, sirenY { -1.0f };
 
     std::atomic<bool> throwDown[NumSources] {}, freezeDown[NumSources] {};
     std::atomic<int>  killRequests { 0 };
